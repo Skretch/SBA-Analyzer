@@ -12,6 +12,7 @@
 
 from pymongo import MongoClient
 from itertools import islice
+from datetime import datetime
 import requests
 import argparse
 import msvcrt
@@ -23,14 +24,20 @@ RED = "\033[31m"
 GREEN = "\033[32m"
 RESET = "\033[0m"
 
+global timer
+timer = (time.time(), 0.0)
+global sleep_time
 
 parser = argparse.ArgumentParser(description='Collects Steam profiles')
-parser.add_argument('--steamid', type=int, help='Steam ID to start from')
+#parser.add_argument('--steamid', type=int, help='Steam ID to start from')
 parser.add_argument('--api_key', type=str, help='Steam API key')
 args = parser.parse_args()
 
+
+DAY_SECONDS = 60*60*24
 API_KEY = args.api_key
-RATE_LIMIT = 100000/(55*60*24) # 100,000 requests per day
+RATE_LIMIT = ((100000-10000)/DAY_SECONDS) # 90,000 requests per day
+sleep_time = RATE_LIMIT
 to_be_scanned = set()
 
 def get_unscanned_profiles():
@@ -74,31 +81,71 @@ def get_unkown_visibility_profiles():
     return visibility_unknown
 
 def get_friends(steamid: int) -> list:
-
+    global RATE_LIMIT
+    global timer
+    global sleep_time
     try:
+
+        timer = (time.time(), time.time()-timer[0])
+
+        if timer[1] < RATE_LIMIT:
+            sleep_time += sleep_time*0.01
+        else:
+            sleep_time -= sleep_time*0.01
+
+        time.sleep(sleep_time)
         url = f'https://api.steampowered.com/ISteamUser/GetFriendList/v1/?key={API_KEY}&steamid={steamid}&relationship=friend'
         response = requests.get(url)
+
+        rcode = response.status_code
+        
+        print(f'{RED if rcode > 400 else GREEN}{rcode}{RESET}')
+
+        if response.status_code == 401:
+            print(f'{RED}Unauthorized {response.status_code} {response.reason} for response {response.url}{RESET}')
+            return []
+        if response.status_code == 403:
+            print(f'{RED}Forbidden {response.status_code} {response.reason} for response {response.url}{RESET}')
+            sys.exit()
+        if response.status_code == 404:
+            print(f'{RED}Not found {response.status_code} {response.reason} for response {response.url}{RESET}')
+            sys.exit()
+        if response.status_code == 500:
+            print(f'{RED}Internal server error {response.status_code} {response.reason} for response {response.url}{RESET}')
+            sys.exit()
+        if response.status_code == 503:
+            print(f'{RED}Service unavailable {response.status_code} {response.reason} for response {response.url}{RESET}')
+            sys.exit()
         if response.status_code == 429:
             print(f'{RED}Rate limit reached {response.status_code} {response.reason} for response {response.url}{RESET}')
-            global RATE_LIMIT
-            RATE_LIMIT = RATE_LIMIT*1.01
+            RATE_LIMIT = RATE_LIMIT*1.1
+            sleep_time = RATE_LIMIT
+            data = {
+                'timestamp': str(datetime.now()),
+                'status_code': response.status_code,
+                'headers': dict(response.headers),
+                'body': response.text
+            }
+            with open("steam_api_log.json", "a+") as f:
+                json.dump(data, f)
+                f.write("\n")
             time.sleep(10)
             response = requests.get(url)
             if response.status_code == 429:
                 print('Rate limit reached again, exiting')
                 sys.exit()
+        
+    except requests.exceptions.RequestException as e:
+        with open("steam_api_log.json", "a+") as f:
+            json.dump({"timestamp": str(datetime.now()), "error": str(e)}, f)
+            f.write("\n")
             
-
-        friends = response.json()['friendslist']['friends']
-
-        time.sleep(RATE_LIMIT*1.5)
-    except KeyError as e:
-        return []
+    friends = response.json()['friendslist']['friends']
     return friends
 
 
 def scan_profiles(steamids: list[int]):
-
+    global timer
     for index, steamid in enumerate(steamids):
         if msvcrt.kbhit():
             if msvcrt.getch() == b'q':
@@ -108,9 +155,10 @@ def scan_profiles(steamids: list[int]):
         if profile and 'friends' in profile:
             continue
         friends = get_friends(steamid)
-        print('Found ' + (f'{GREEN}' if len(friends)<10 else f'{RED}') + f'{len(friends):3d}{RESET} friends of {steamid}', end=' ')
-        print(f'skipping friends | {index}/100' if len(friends) > 10 else f'adding to search | {index}/100')
-        if len(friends) < 10:
+        print('Found ' + (f'{GREEN}' if len(friends)<10 else f'{RED}') + f'{len(friends):3d}{RESET} friends of {GREEN}{str(steamid)[:7]}{RESET}{str(steamid)[7:]}', end=' ')
+        print(f'skipping all friends   | {index:3d}/50  {timer[1]:3.2f}s elapsed' if len(friends) > 10 or True else f'{GREEN}adding to search{RESET} | {index:3d}/50', end=' ') # skipping friends,  Remove True to add print statement correctly
+        if len(friends) < 10 and False: # Remove False to add friends to search
+            #print('something is wrong')
             for friend in friends:
                 to_be_scanned.add(friend['steamid'])
                 if not collection.find_one({'steamid': friend['steamid']}):
@@ -120,7 +168,7 @@ def scan_profiles(steamids: list[int]):
                         })
         
         collection.update_one(
-            {'steamid': steamid},
+            {'steamid': str(steamid)},
             {
                 '$setOnInsert': {
                     'time_added_unix': int(time.time())
@@ -158,7 +206,7 @@ def get_visibility_100_profiles(steamids: str):
     profiles = response.json()['response']['players']
     if len(profiles) == 0:
         steamids = (steamids[1:-1]).split(',')
-        
+
         print(f'{RED}DEBUG RESPONSE:{RESET}')
         print(f'Requests failed: {response.status_code} {response.reason} for response {response.url}')
         print(f'Response: {response.text}[:200]')
@@ -224,6 +272,8 @@ def get_visibility_100_profiles(steamids: str):
 
 
 if __name__ == '__main__':
+    timer = (time.time(), time.time()-timer[0])
+    print(timer[1])
 
     unknown_border = 500
 
@@ -233,9 +283,10 @@ if __name__ == '__main__':
 
     unscanned_profiles_from_db = get_unscanned_profiles()
     to_be_scanned.update(doc['steamid'] for doc in unscanned_profiles_from_db)
-    to_be_scanned.add(args.steamid)
+    #to_be_scanned.add(args.steamid)
+
     print('')
-    print('-'*60)
+    print('-'*64)
     print(f'{GREEN}{len(to_be_scanned):6d}{RESET} Profiles left to be scanned, {GREEN}{collection.estimated_document_count():6d}{RESET} Profiles stored')
     while to_be_scanned:
         unkown_visibility_profiles = get_unkown_visibility_profiles()
@@ -244,6 +295,8 @@ if __name__ == '__main__':
         if len(unkown_visibility_profiles) > 500:
             batches = [unkown_visibility_profiles[i: i + 100] for i in range(0, len(unkown_visibility_profiles), 100)]
             print(f'Scanning {len(unkown_visibility_profiles)} profiles with unknown visibility')
+            print('Pausing for 10 seconds to')
+            time.sleep(10)
             for batch in batches:
                 if msvcrt.kbhit():
                     if msvcrt.getch() == b'q':
@@ -251,9 +304,23 @@ if __name__ == '__main__':
                         break
                 steamids = f'[{','.join(batch)}]'
                 get_visibility_100_profiles(steamids)
-        print('-'*60)
-        if scan_profiles(list(islice(to_be_scanned, 100))):
+        print('-'*64)
+        beforeQueue = len(to_be_scanned)
+        beforeStored = collection.estimated_document_count()
+        beforeTime = time.time()
+        if scan_profiles(list(islice(to_be_scanned, 50))):
             client.close()
             break
-        print('-'*60)
-        print(f'{GREEN}{len(to_be_scanned):6d}{RESET} profiles left to be scanned, {GREEN}{collection.estimated_document_count():6d}{RESET} Profiles in stored')
+        print()
+        print('-'*(33-8) + f'{GREEN}Rate of progress{RESET}' + '-'*31)
+        deltatime = time.time() - beforeTime
+        deltaQueue = len(to_be_scanned) - beforeQueue
+        afterStored = collection.estimated_document_count()
+        deltaStored = afterStored - beforeStored
+        requestsPerDay = (50/deltatime)*DAY_SECONDS
+        print(('Clearing queue' if deltaQueue < 0 else 'Adding to queue'), end=' ')
+        print(f'at a rate of {GREEN}{((abs(deltaQueue)/deltatime)*DAY_SECONDS):3.1f}{RESET} profiles per day')
+        print(f'-------------------Making {GREEN}{requestsPerDay:3.1f}{RESET} requests per day')
+        print(f'Adding {GREEN}{deltaStored/deltatime:3.2f}{RESET} profiles per second to the database')
+        print('-'*(33-8) + f'{GREEN}Progress{RESET}' + '-'*31)
+        print(f'{GREEN}{len(to_be_scanned):6d}{RESET} profiles left to be scanned, {GREEN}{afterStored:6d}{RESET} Profiles in stored')
