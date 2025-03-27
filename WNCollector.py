@@ -367,12 +367,10 @@ if __name__ == '__main__':
             if quiting:
                 break
 
-            profiles_without_friends_lists = QueueGenerators.ProfilesWithoutFriendsList(db, collection)
-            if(len(profiles_without_friends_lists) > 0):
-                scan_queue.update(int(profile) for profile in profiles_without_friends_lists)
-            else:
-                break
-
+        profiles_without_friends_lists = QueueGenerators.ProfilesWithoutFriendsList(db, collection)
+        if(len(profiles_without_friends_lists) > 0):
+            scan_queue.update(int(profile) for profile in profiles_without_friends_lists)
+            
         deltatime = time.time() - beforeTime
         requestsPerDay = (batch_size/deltatime)*S_DAY
 
