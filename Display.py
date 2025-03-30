@@ -64,11 +64,11 @@ class Display:
     def update_header_data(self, data: dict):
         prev_queue_length = self.header_data['queue_length']
         updates = {
-            'queue_length': data.get('queue_length', self.header_data.get('queue_length', 0)),
-            'profiles_in_db': data.get('profiles_in_db', self.header_data.get('profiles_in_db', 0)),
-            'profiles_with_friends': data.get('profiles_with_friends', self.header_data.get('profiles_with_friends', 0)),
-            'profiles_without_friends': data.get('profiles_without_friends', self.header_data.get('profiles_without_friends', 0)),
-            'profiles_with_less_than_10_friends': data.get('profiles_with_less_than_10_friends', self.header_data.get('profiles_with_less_than_10_friends', 0)),
+            'queue_length': data.get('queue_length', 0),
+            'profiles_in_db': data.get('profiles_in_db', 0),
+            'profiles_with_friends': data.get('profiles_with_friends', 0),
+            'profiles_without_friends': data.get('profiles_without_friends', 0),
+            'profiles_with_less_than_10_friends': data.get('profiles_with_less_than_10_friends', 0),
         }
         if 'queue_length' in data:
             updates['queue_clearing_rate'] = (prev_queue_length - data['queue_length']) / ((self.get_delta_time()/1e9)+1e-9)

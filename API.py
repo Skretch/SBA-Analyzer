@@ -47,12 +47,13 @@ class API:
             url = f'https://api.steampowered.com/ISteamUser/GetFriendList/v1/?key={self.API_KEY}&steamid={steamid}&relationship=friend'
             response = requests.get(url)
             response.raise_for_status()
-            self.handle_response_code(response)
+            if self.handle_response_code(response):
+                return ([], True)
             response = response.json()
         
         except requests.exceptions.RequestException as e:
             self.__logg_response_error(response, e)
-            sys.exit(1)
+            return ([], False)
 
         try:
             response = response['friendslist']['friends']
@@ -86,7 +87,7 @@ class API:
 
     def handle_response_code(self, response: requests.Response):
         if response.status_code == 200:
-            return
+            return False
         elif response.status_code == 429:
             print(f"Rate limit exceeded: {response.status_code}")
             self.__logg_response_error(response, "Rate limit exceeded")
@@ -100,13 +101,13 @@ class API:
             return
         elif response.status_code == 503:
             print(f"Service unavailable: {response.status_code}")
-            return
+            return False
         elif response.status_code == 401:
             print(f"Unauthorized: {response.status_code}")
-            return
+            return True
         else:
             print(f"Unknown error: {response.status_code}")
-            return
+            return False
         
     def __logg_response_error(self, response: requests.Response, e: Exception) -> requests.Response:
         data = {
