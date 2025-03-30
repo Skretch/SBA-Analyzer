@@ -35,13 +35,13 @@ class Display:
         ]
 
         self.header_data = {
-            'queue_length': 1,
-            'queue_clearing_rate': 1,
-            'queue_clearing_time': 1,
-            'profiles_in_db': 1,
-            'profiles_with_friends': 1,
-            'profiles_without_friends': 1,
-            'profiles_with_less_than_10_friends': 1,
+            'queue_length': 0,
+            'queue_clearing_rate': 0,
+            'queue_clearing_time': 0,
+            'profiles_in_db': 0,
+            'profiles_with_friends': 0,
+            'profiles_without_friends': 0,
+            'profiles_with_less_than_10_friends': 0,
         }
         self.header_lines = len(self.header_template) + 1
         self.initialized = False

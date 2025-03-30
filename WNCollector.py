@@ -13,15 +13,12 @@
 from pymongo import MongoClient
 from API import API
 from itertools import islice
-from datetime import datetime
 from Display import Display, DisplayType
+from Database import Steam_MongoDB
 import QueueGenerators
-import requests
 import argparse
 import msvcrt
 import time
-import json
-import sys
 
 RED = "\033[31m"
 GREEN = "\033[32m"
@@ -50,15 +47,7 @@ sleep_time = RATE_LIMIT
 scan_queue = set()
 
 
-def add_friends_to_db(friends: list):
-    for friend in friends:
-        if not collection.find_one({'steamid': friend['steamid']}):
-            collection.insert_one({
-                'steamid': friend['steamid'],
-                'time_added_unix': int(time.time()),
-                })
-
-def scan_profiles(steamids: list[int], display: Display, apiHandler: API) -> bool:
+def scan_profiles(steamids: list[int], display: Display, apiHandler: API, db: Steam_MongoDB) -> bool:
     global timer
     global quiting
     for index, steamid in enumerate(steamids):
@@ -99,9 +88,9 @@ def scan_profiles(steamids: list[int], display: Display, apiHandler: API) -> boo
                 'profiles_with_friends': (display.header_data['profiles_with_friends'] + 1 if friend_count > 0 else display.header_data['profiles_with_friends'])
             })
             display.render()
-            add_friends_to_db(friends)
+            db.add_friends_to_db(friends)
         
-        collection.update_one(
+        db.collection.update_one(
             {'steamid': str(steamid)},
             {
                 '$setOnInsert': {
@@ -123,28 +112,28 @@ if __name__ == '__main__':
 
     display = Display(DisplayType.BOTTOM_UP)
 
-    client = MongoClient('localhost', 27017)
-    db = client['steam_db']
-    collection = db['profiles']
+    db = Steam_MongoDB('localhost', 27017)
     batch_size = 20
 
     apiHandler = API(API_KEY)
 
-    profiles_without_friends_lists = QueueGenerators.ProfilesWithoutFriendsList(db, collection)
-    scan_queue.update(int(profile) for profile in profiles_without_friends_lists)
-
-    if len(scan_queue) == 0:
-        scan_queue.add(args.steamid)    
-
+    scan_queue = db.get_profiles_without_friendslist()
+    
+    if args.steamid:
+        if args.steamid not in scan_queue:
+            scan_queue.add(args.steamid)
+            display.add_log(f"Adding {args.steamid} to scan queue")
+        else:
+            display.add_log(f"{args.steamid} already in scan queue")
 
     while scan_queue:
 
         display.update_header_data({
             'queue_length': len(scan_queue),
-            'profiles_in_db': collection.estimated_document_count(),
-            'profiles_with_friends': collection.count_documents({'friends': {'$exists': True}}),
-            'profiles_without_friends': collection.count_documents({'friends': {'$exists': False}}),
-            'profiles_with_less_than_10_friends': collection.count_documents({'friends_count': {'$lt': 10}})
+            'profiles_in_db': db.collection.estimated_document_count(),
+            'profiles_with_friends': db.collection.count_documents({'friends': {'$exists': True}}),
+            'profiles_without_friends': db.collection.count_documents({'friends': {'$exists': False}}),
+            'profiles_with_less_than_10_friends': db.collection.count_documents({'friends_count': {'$lt': 10}})
         })
         
         display.render()
@@ -154,9 +143,11 @@ if __name__ == '__main__':
             if quiting:
                 break
 
-        profiles_without_friends_lists = QueueGenerators.ProfilesWithoutFriendsList(db, collection)
-        if(len(profiles_without_friends_lists) > 0 or True):
+        profiles_without_friends_lists = db.get_profiles_without_friendslist()
+        if len(profiles_without_friends_lists) == 0:
+            display.add_log(f'No profiles without friends list found')
             break
+        if(len(profiles_without_friends_lists) > 0):
             scan_queue.update(int(profile) for profile in profiles_without_friends_lists)
 
         deltatime = time.time() - beforeTime
@@ -167,8 +158,9 @@ if __name__ == '__main__':
         else:
             sleep_time -= sleep_time*0.1
 
-        #print_status_update(deltatime, deltaQueue, deltaStored, afterStored, len(scan_queue),requestsPerDay)
+
+    display.add_log(f'Scan ended with {len(scan_queue)} profiles in queue')
+    display.add_log('Exiting')
+    display.render()
     
-    print(f'Scan ended with {len(scan_queue)} profiles in queue')
-    print('Exiting')
-    client.close()
+    db.close()
