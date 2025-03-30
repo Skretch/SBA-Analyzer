@@ -50,47 +50,6 @@ sleep_time = RATE_LIMIT
 scan_queue = set()
 
 
-
-def get_unscanned_profiles():
-    unscanned_profiles = collection.find({
-    '$and': [
-        {
-            "$or": 
-            [
-                {'publicFriendsList': True},
-                {'publicFriendsList': {'$exists': False}}
-            ]
-        },
-        {
-            "$or":
-            [
-                {'friends': {'$exists': False}},
-                {'friends': []}
-            ]
-        },
-        {
-            '$or':
-            [
-                {'friends_count': {'$exists': False}},
-                {'friends_count': {'$lt': 10}}
-            ]
-        },
-        {
-            '$or':
-            [
-                {'publicProfile': {'$exists': False}},
-                {'publicProfile': True}
-            ]
-        }
-    ]
-})
-    return unscanned_profiles
-def get_unkown_visibility_profiles():
-    visibility_unknown = collection.find(
-        { 'publicProfile': { '$exists': False } }
-    )
-    return visibility_unknown
-
 def add_friends_to_db(friends: list):
     for friend in friends:
         if not collection.find_one({'steamid': friend['steamid']}):
