@@ -198,3 +198,4 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 old_code.py
+steam_db.db
